@@ -1,0 +1,100 @@
+---
+title: "GEE Preparations"
+author: "Marvin Ludwig"
+date: '2022-03-28'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Aim
+
+Lucas points were surveyed on different time days of the year.
+
+```{r}
+library(sf)
+library(lubridate)
+library(dplyr)
+library(mapview)
+
+mapviewOptions(fgb = FALSE)
+
+
+lucas = st_read("data/raw/lucas_2018_checked_v1_2021-12-14.gpkg")
+
+lucas_time = data.frame(date = lucas$survey_date)
+lucas_time = lucas_time %>% group_by(date) %>% summarise(n = n())
+lucas_time$date = lubridate::as_date(lucas_time$date)
+
+plot(n ~ date, data = lucas_time)
+```
+
+
+For the development of satellite based models we need the matching imagery as close as possible to the survey date.
+
+## GEE
+
+
+Let's test the predictor acquisition with Google Earth Engine with a small sample.
+
+
+```{r}
+lucas_sample = lucas %>% filter(survey_date == "2018-05-03")
+mapview(lucas_sample)
+```
+
+
+GEE expects a csv. So we have to reformat. This can be uploaded in the GEE Editor Assets.
+
+
+```{r}
+lucas_samples = lucas_sample %>% mutate(X = st_coordinates(lucas_sample)[,1],
+                                        Y = st_coordinates(lucas_sample)[,2]) %>% 
+    st_drop_geometry()
+
+write.csv(lucas_samples, file = "data/gee/lucas_sample.csv", quote = TRUE, row.names = FALSE)
+```
+
+The following is a minimal example of a GEE script in JS:
+
+```{js, eval = FALSE}
+// Load sample points
+
+var lucas = ee.FeatureCollection('users/Ludwigm6/lucas_sample');
+
+// Load Sentinel 2 imagery
+var sen = ee.ImageCollection("COPERNICUS/S2_SR")
+              .filterDate('2018-05-03', '2018-05-15')
+              .median();
+              
+              
+              
+// Sample Image at point locations
+var sampledPoints = sen.sampleRegions({
+  collection: lucas,
+  scale: 10
+});
+
+// save to Google Drive
+Export.table.toDrive(sampledPoints);
+
+```
+
+
+which results in the following extraction:
+
+
+```{r}
+lucas_gee = read.csv("data/gee/lucas_sample_gee.csv")
+colnames(lucas_gee)
+```
+
+The used image collection (S2_SR) also includes the SCL band which we can use to filter the training data without fancy GEE scripting.
+
+
+
+
+
+
